@@ -4,7 +4,7 @@ import allocateWorkers from '../services/scheduler';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import './Dashboard.css';
-import supabase from '../supabaseClient';
+import { supabase } from '../supabaseClient';
 
 const Dashboard = () => {
   const [schedule, setSchedule] = useState({});
@@ -23,6 +23,7 @@ const Dashboard = () => {
   const [auditEntries, setAuditEntries] = useState([]);
   const [showAuditModal, setShowAuditModal] = useState(false);
   const [focusedFieldValue, setFocusedFieldValue] = useState(null);
+  const stationOrder = ['Ashford', 'Dover Priory', 'Tonbridge', 'Rainham', 'Sittingbourne', 'Faversham', 'Canterbury East', 'Chatham', 'Hastings', 'Strood', 'Rochester', 'Gillingham', 'Woolwich Arsenal', 'Lewisham', 'Dartford', 'Gravesend', 'Maidstone East', 'Brixton']; 
 
   useEffect(() => {
     const saved = localStorage.getItem('workerSchedule');
@@ -831,296 +832,319 @@ setUnassignedStations(unassigned);
 
 
   return (
-    <div className="dashboard-container">
-      <h1 className="dashboard-header">Dashboard</h1>
-      <p className="dashboard-description">Welcome to the Dashboard! Below is the schedule for the stations and allocated workers.</p>
-      <div className='button-container'>
+  <div className="dashboard-container">
+    <h1 className="dashboard-header">Dashboard</h1>
+    <p className="dashboard-description">Welcome to the Dashboard! Below is the schedule for the stations and allocated workers.</p>
+    <div className='button-container'>
       <button className="excel-button" onClick={exportToExcel}>
         Export to Excel
       </button>
-
       <button className="pdf-button" onClick={downloadDashboardAsPDF}>
         Download Dashboard as PDF
       </button>
-
       <button className="save-button" onClick={handleSave}>
         Save Schedule
       </button>
-
-      {/* New Generate Schedule Button */}
       <button className="generate-schedule-button" onClick={generateNewSchedule}>
         Generate New Schedule
       </button>
       <button onClick={fetchAuditTrail}>View Audit Trail</button>
-
       {showAuditModal && (
-  <div className="audit-modal" onClick={() => setShowAuditModal(false)}>
-    <div className="audit-modal-content" onClick={(e) => e.stopPropagation()}>
-      <h3>Audit Trail</h3>
-      <table>
+        <div className="audit-modal" onClick={() => setShowAuditModal(false)}>
+          <div className="audit-modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3>Audit Trail</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Worker</th>
+                  <th>Day</th>
+                  <th>Old Location</th>
+                  <th>New Location</th>
+                  <th>Old Time</th>
+                  <th>New Time</th>
+                  <th>Comments</th>
+                  <th>Changed At</th>
+                  <th>Changed By</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditEntries.map((entry, idx) => (
+                  <tr key={idx}>
+                    <td>{entry.worker_name}</td>
+                    <td>{entry.day_of_week}</td>
+                    <td>{entry.old_location}</td>
+                    <td>{entry.new_location}</td>
+                    <td>{entry.old_time}</td>
+                    <td>{entry.new_time}</td>
+                    <td>{entry.comments}</td>
+                    <td>{new Date(new Date(entry.changed_at).getTime() + 60 * 60 * 1000).toLocaleString()}</td>
+                    <td>{entry.changed_by}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <button onClick={() => setShowAuditModal(false)}>Close</button>
+          </div>
+        </div>
+      )}
+      <div className="search-container">
+        {!showDelete ? (
+          <button className="search-schedule-button" onClick={() => setShowDelete(true)}>
+            Delete
+          </button>
+        ) : (
+          <form
+            className="search-form"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!weekEndingDate) {
+                alert("Please select a date first.");
+                return;
+              }
+              const confirmed = window.confirm('Are you sure you want to delete the schedule for this week?');
+              if (confirmed) {
+                const result = await deleteSchedule(weekEndingDate);
+                if (result?.success) {
+                  console.log(result.message);
+                  setSchedule({});
+                  alert('Schedule deleted successfully.');
+                } else {
+                  console.error(result?.message);
+                  alert('Failed to delete the schedule. Please try again.');
+                }
+              }
+            }}
+          >
+            <button
+              className="close-button"
+              onClick={() => setShowDelete(false)}
+              aria-label="Close"
+            >
+              Close
+            </button>
+            <input
+              type="date"
+              value={weekEndingDate}
+              onChange={(e) => setWeekEndingDate(e.target.value)}
+              className="date-input"
+            />
+            <button type="submit" className="go-button">
+              Delete
+            </button>
+          </form>
+        )}
+      </div>
+      <div className="search-container">
+        {!showSearch ? (
+          <button className="search-schedule-button" onClick={() => setShowSearch(true)}>
+            Search
+          </button>
+        ) : (
+          <form
+            className="search-form"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!weekEndingDate) {
+                alert("Please select a date first.");
+                return;
+              }
+              const result = await fetchSchedule(weekEndingDate);
+              if (result) {
+                console.log(result.schedule);
+                setSchedule(result.schedule);
+                setDatesOfWeek(result.datesOfWeek);
+                assignStationColors(result.schedule);
+              }
+            }}
+          >
+            <button
+              className="close-button"
+              onClick={() => setShowSearch(false)}
+              aria-label="Close"
+            >
+              Close
+            </button>
+            <input
+              type="date"
+              value={weekEndingDate}
+              onChange={(e) => setWeekEndingDate(e.target.value)}
+              className="date-input"
+            />
+            <button type="submit" className="go-button">
+              Go
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+    {successMessage && (
+      <div className="success-message">
+        {successMessage}
+      </div>
+    )}
+    <div className="dashboard-table-wrapper">
+      {console.log('Schedule state:', JSON.stringify(schedule))}
+      {console.log('Station order:', stationOrder)}
+      {console.log('Days of week:', daysOfWeek)}
+      {console.log('All locations in schedule:', [
+        ...new Set(
+          Object.values(schedule)
+            .flatMap((workerSchedule) =>
+              Object.values(workerSchedule).map((entry) => entry.location)
+            )
+            .filter((location) => location && location !== 'Unassigned')
+        ),
+      ])}
+      {console.log('Station colors:', stationColors)}
+      <table className="dashboard-table">
         <thead>
           <tr>
             <th>Worker</th>
-            <th>Day</th>
-            <th>Old Location</th>
-            <th>New Location</th>
-            <th>Old Time</th>
-            <th>New Time</th>
-            <th>Comments</th>
-            <th>Changed At</th>
-            <th>Changed By</th>
+            {daysOfWeek.map((day) => (
+              <th key={day}>
+                {day} <br />
+                {datesOfWeek[day] ?? '—'}
+              </th>
+            ))}
+            <th>Hours Worked (72hr)</th>
           </tr>
         </thead>
         <tbody>
-          {auditEntries.map((entry, idx) => (
-            <tr key={idx}>
-              <td>{entry.worker_name}</td>
-              <td>{entry.day_of_week}</td>
-              <td>{entry.old_location}</td>
-              <td>{entry.new_location}</td>
-              <td>{entry.old_time}</td>
-              <td>{entry.new_time}</td>
-              <td>{entry.comments}</td>
-              <td>{new Date(new Date(entry.changed_at).getTime() + 60 * 60 * 1000).toLocaleString()}</td>
-              <td>{entry.changed_by}</td>
-            </tr>
-          ))}
+          {stationOrder.map((station, stationIndex) => {
+            const workersWithStation = Object.keys(schedule).filter((worker) => {
+              const hasStation = daysOfWeek.some((day) => {
+                const locationMatch =
+                  schedule[worker][day]?.location?.toLowerCase() === station.toLowerCase();
+                console.log(
+                  `Checking worker: ${worker}, day: ${day}, station: ${station}, location: ${
+                    schedule[worker][day]?.location
+                  }, normalized station: ${station.toLowerCase()}, normalized location: ${
+                    schedule[worker][day]?.location?.toLowerCase()
+                  }, match: ${locationMatch}`
+                );
+                return locationMatch;
+              });
+              return hasStation;
+            });
+            console.log(`Workers for station ${station}:`, workersWithStation);
+            return workersWithStation.map((worker, workerIndex) => {
+              const hours = calculateHoursWorked(schedule[worker]);
+              console.log(`Calculating hours for ${worker}:`, schedule[worker], `Result: ${hours}`);
+              return (
+                <tr key={`${worker}-${station}`}>
+                  <td>{worker}</td>
+                  {daysOfWeek.map((day) => {
+                    const daySchedule = schedule[worker][day];
+                    const isStationMatch = daySchedule?.location?.toLowerCase() === station.toLowerCase();
+                    const stationColor = isStationMatch
+                      ? getStationColor(daySchedule.location) // Use original location for color
+                      : '#f1f1f1';
+                    console.log(
+                      `Rendering cell - Worker: ${worker}, Day: ${day}, Station: ${station}, DaySchedule:`,
+                      daySchedule,
+                      `isStationMatch: ${isStationMatch}, Color: ${stationColor}`
+                    );
+                    return (
+                      <td
+                        key={day}
+                        className={isStationMatch ? 'scheduled' : 'unassigned'}
+                        style={{ backgroundColor: stationColor }}
+                      >
+                        <input
+                          type="text"
+                          value={isStationMatch ? daySchedule.location : ''}
+                          onFocus={() =>
+                            setFocusedFieldValue({
+                              worker,
+                              day,
+                              field: 'location',
+                              value: daySchedule.location,
+                            })
+                          }
+                          onChange={(e) =>
+                            handleChange(worker, day, 'location', e.target.value)
+                          }
+                          placeholder="Location"
+                        />
+                        <input
+                          type="text"
+                          value={isStationMatch ? daySchedule.time : ''}
+                          onFocus={() =>
+                            setFocusedFieldValue({
+                              worker,
+                              day,
+                              field: 'time',
+                              value: daySchedule.time,
+                            })
+                          }
+                          onChange={(e) =>
+                            handleChange(worker, day, 'time', e.target.value)
+                          }
+                          placeholder="Time"
+                        />
+                      </td>
+                    );
+                  })}
+                  <td>
+                    {workerIndex === 0 ? hours : ''} {/* Show hours only on first row for each worker */}
+                  </td>
+                </tr>
+              );
+            });
+          })}
         </tbody>
       </table>
-      <button onClick={() => setShowAuditModal(false)}>Close</button>
     </div>
-  </div>
-)}
-
-<div className="search-container">
-  {!showDelete ? (
-    <button className="search-schedule-button" onClick={() => setShowDelete(true)}>
-      Delete
-    </button>
-  ) : (
-    <form
-      className="search-form"
-      onSubmit={async (e) => {
-        e.preventDefault();
-
-        if (!weekEndingDate) {
-          alert("Please select a date first.");
-          return;
-        }
-        const confirmed = window.confirm('Are you sure you want to delete the schedule for this week?');
-        if (confirmed) {
-        const result = await deleteSchedule(weekEndingDate);
-        if (result?.success) {
-          console.log(result.message);  // Log success message (e.g., 'Schedule deleted successfully.')
-          
-          // Optionally clear out the state or update UI after deletion
-          setSchedule({});  
-    
-          alert('Schedule deleted successfully.');  // Optionally show a success message to the user
-        } else {
-          console.error(result?.message);  // Log the error message if deletion fails
-          alert('Failed to delete the schedule. Please try again.');
-        }
-      }
-      }}
-    > 
-      <button 
-              className="close-button" 
-              onClick={() => setShowDelete(false)} 
-              aria-label="Close"
-            >
-              Close
-            </button>
-      
-      <input
-        type="date"
-        value={weekEndingDate}
-        onChange={(e) => setWeekEndingDate(e.target.value)}
-        className="date-input"
-      />
-      <button type="submit" className="go-button">
-        Delete
-      </button>
-    </form>
-  )}
-</div>
-      <div className="search-container">
-  {!showSearch ? (
-    <button className="search-schedule-button" onClick={() => setShowSearch(true)}>
-      Search
-    </button>
-  ) : (
-    <form
-      className="search-form"
-      onSubmit={async (e) => {
-        e.preventDefault();
-
-        if (!weekEndingDate) {
-          alert("Please select a date first.");
-          return;
-        }
-
-        const result = await fetchSchedule(weekEndingDate);
-        if (result) {
-          console.log(result.schedule);
-          setSchedule(result.schedule);
-          setDatesOfWeek(result.datesOfWeek);
-          assignStationColors(result.schedule);
-        }
-      }}
-    >
-      <button 
-              className="close-button" 
-              onClick={() => setShowSearch(false)} 
-              aria-label="Close"
-            >
-              Close
-            </button>
-      <input
-        type="date"
-        value={weekEndingDate}
-        onChange={(e) => setWeekEndingDate(e.target.value)}
-        className="date-input"
-      />
-      <button type="submit" className="go-button">
-        Go
-      </button>
-    </form>
-  )}
-</div>
-
-
-      </div>
-      {/* Success message notification */}
-      {successMessage && (
-        <div className="success-message">
-          {successMessage}
-        </div>
-      )}
-
-      <div className="dashboard-table-wrapper">
-        <table className="dashboard-table">
+    {unassignedStations.length > 0 && (
+      <div className="unassigned-section">
+        <h2>🛠️ Unassigned Stations</h2>
+        <table className="unassigned-table">
           <thead>
             <tr>
-              <th>Worker</th>
-              {daysOfWeek.map((day) => (
-  <th key={day}>
-    {day} <br />
-    {datesOfWeek[day] ?? '—'}
-  </th>
-))}
-
-              <th>Hours Worked (72hr)</th>
+              <th>Day</th>
+              <th>Location</th>
+              <th>Time</th>
+              <th>Assign to Worker</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
-            {Object.keys(schedule).map((worker) => (
-              <tr key={worker}>
-                <td>{worker}</td>
-                {daysOfWeek.map((day) => {
-                  const daySchedule = schedule[worker][day];
-                  const stationColor = getStationColor(daySchedule.location);
-                  return (
-                    <td 
-                      key={day}
-                      className={daySchedule.location === 'Unassigned' ? 'unassigned' : 'scheduled'}
-                      style={{ backgroundColor: stationColor }}
-                    >
-                      <input
-  type="text"
-  value={daySchedule.location !== 'Unassigned' ? daySchedule.location : ''}
-  onFocus={() =>
-    setFocusedFieldValue({
-      worker,
-      day,
-      field: 'location',
-      value: daySchedule.location,
-    })
-  }
-  onChange={(e) =>
-    handleChange(worker, day, 'location', e.target.value)
-  }
-  placeholder="Location"
-/>
-
-<input
-  type="text"
-  value={daySchedule.time}
-  onFocus={() =>
-    setFocusedFieldValue({
-      worker,
-      day,
-      field: 'time',
-      value: daySchedule.time,
-    })
-  }
-  onChange={(e) =>
-    handleChange(worker, day, 'time', e.target.value)
-  }
-  placeholder="Time"
-/>
-
-                    </td>
-                  );
-                })}
-                <td>{calculateHoursWorked(schedule[worker])}</td>
+            {unassignedStations.map((station, index) => (
+              <tr key={index}>
+                <td>{station.day}</td>
+                <td>
+                  <input
+                    type="text"
+                    value={station.location}
+                    onChange={(e) => handleUnassignedChange(index, 'location', e.target.value)}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="text"
+                    value={station.time}
+                    onChange={(e) => handleUnassignedChange(index, 'time', e.target.value)}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="text"
+                    placeholder="Worker name"
+                    value={station.assignedWorker || ''}
+                    onChange={(e) => handleUnassignedChange(index, 'assignedWorker', e.target.value)}
+                  />
+                </td>
+                <td>
+                  <button onClick={() => assignUnassignedStation(index)}>Assign</button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {unassignedStations.length > 0 && (
-  <div className="unassigned-section">
-    <h2>🛠️ Unassigned Stations</h2>
-    <table className="unassigned-table">
-      <thead>
-        <tr>
-          <th>Day</th>
-          <th>Location</th>
-          <th>Time</th>
-          <th>Assign to Worker</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        {unassignedStations.map((station, index) => (
-          <tr key={index}>
-            <td>{station.day}</td>
-            <td>
-              <input
-                type="text"
-                value={station.location}
-                onChange={(e) => handleUnassignedChange(index, 'location', e.target.value)}
-              />
-            </td>
-            <td>
-              <input
-                type="text"
-                value={station.time}
-                onChange={(e) => handleUnassignedChange(index, 'time', e.target.value)}
-              />
-            </td>
-            <td>
-              <input
-                type="text"
-                placeholder="Worker name"
-                value={station.assignedWorker || ''}
-                onChange={(e) => handleUnassignedChange(index, 'assignedWorker', e.target.value)}
-              />
-            </td>
-            <td>
-              <button onClick={() => assignUnassignedStation(index)}>Assign</button>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    )}
   </div>
-)}
-
-
-    </div>
-  );
+);
 };
 
 export default Dashboard;

@@ -1,4 +1,4 @@
-import supabase from '../supabaseClient';
+import { supabase } from '../supabaseClient';
 
 const getShiftType = (time) => {
   const startTime = parseInt(time.split('-')[0]);

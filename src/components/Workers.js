@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './Workers.css';
-import supabase from '../supabaseClient';
+import { supabase } from '../supabaseClient';
 
 const Workers = () => {
   const [workers, setWorkers] = useState([]);

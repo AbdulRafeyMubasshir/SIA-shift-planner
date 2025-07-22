@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import supabase from '../supabaseClient';
+import { supabase } from '../supabaseClient';
 import './Stations.css';
 
 const excelDateToJS = (excelSerial) => {
