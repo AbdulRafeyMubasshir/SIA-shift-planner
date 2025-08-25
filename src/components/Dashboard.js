@@ -1,10 +1,78 @@
 import React, { useState, useEffect } from 'react';
+import { DndContext, closestCenter } from '@dnd-kit/core';
+import { SortableContext, useSortable, rectSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import * as XLSX from 'xlsx';
 import allocateWorkers from '../services/scheduler';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import './Dashboard.css';
 import { supabase } from '../supabaseClient';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
+
+// SortableItem component for each table cell
+// SortableItem component for each table cell
+const SortableItem = ({ id, worker, day, daySchedule, stationColor, handleChange, setFocusedFieldValue, calculateShiftDuration, isScheduleLocked }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: isScheduleLocked });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    backgroundColor: stationColor,
+    opacity: isDragging ? 0.6 : 1,
+    border: isDragging ? '2px dashed #888' : '1px solid #ddd',
+  };
+
+  const shiftDuration = calculateShiftDuration(daySchedule.time);
+
+  return (
+    <td
+      ref={setNodeRef}
+      style={style}
+      {...(isScheduleLocked ? {} : { ...attributes, ...listeners })}
+      className={daySchedule.location === 'Unassigned' ? 'unassigned' : 'scheduled'}
+    >
+      <div>
+        <input
+          type="text"
+          value={daySchedule.location !== 'Unassigned' ? daySchedule.location : ''}
+          onFocus={() =>
+            !isScheduleLocked &&
+            setFocusedFieldValue({
+              worker,
+              day,
+              field: 'location',
+              value: daySchedule.location,
+            })
+          }
+          onChange={(e) => !isScheduleLocked && handleChange(worker, day, 'location', e.target.value)}
+          placeholder="Location"
+          disabled={isScheduleLocked}
+        />
+        <input
+          type="text"
+          value={daySchedule.time}
+          onFocus={() =>
+            !isScheduleLocked &&
+            setFocusedFieldValue({
+              worker,
+              day,
+              field: 'time',
+              value: daySchedule.time,
+            })
+          }
+          onChange={(e) => !isScheduleLocked && handleChange(worker, day, 'time', e.target.value)}
+          placeholder="Time"
+          disabled={isScheduleLocked}
+        />
+        <span className="shift-duration">
+          {daySchedule.time && shiftDuration !== '0.00' ? `${shiftDuration}` : '—'}
+        </span>
+      </div>
+    </td>
+  );
+};
 
 const Dashboard = () => {
   const [schedule, setSchedule] = useState({});
@@ -23,6 +91,7 @@ const Dashboard = () => {
   const [auditEntries, setAuditEntries] = useState([]);
   const [showAuditModal, setShowAuditModal] = useState(false);
   const [focusedFieldValue, setFocusedFieldValue] = useState(null);
+  const [isScheduleLocked, setIsScheduleLocked] = useState(false);
   const stationOrder = ['Ashford', 'Dover Priory', 'Tonbridge', 'Rainham', 'Sittingbourne', 'Faversham', 'Canterbury East', 'Chatham', 'Hastings', 'Strood', 'Rochester', 'Gillingham', 'Woolwich Arsenal', 'Lewisham', 'Dartford', 'Gravesend', 'Maidstone East', 'Brixton']; 
 
   useEffect(() => {
@@ -127,7 +196,7 @@ if (stationsError) {
 }
 
 // Step 3: Map the unique dates to the corresponding days of the week
-const uniqueDates = [...new Set(stations.map(row => row.date))];
+const uniqueDates = [...new Set(stations.map(row => row.date))].sort((a, b) => new Date(a) - new Date(b));;
 const newDatesOfWeek = {};
 daysOfWeek.forEach((day, index) => {
   const date = uniqueDates[index];
@@ -158,31 +227,60 @@ setDatesOfWeek(newDatesOfWeek);
     return formattedSchedule;
   };
   
+  const predefinedStationColors = {
+  "LONDON BRIDGE": "#F4CCCC",
+  "CHARING CROSS": "#A64D79",
+  "WATERLOO EAST": "#00FFFF",
+  "LEWISHAM": "#F6B26B",
+  "BLACKHEATH": "#00FFFF",
+  "DARTFORD": "#6FA8DC",
+  "WOOLWICH ARSENAL": "#BDD7EE",
+  "SIDCUP": "#EA9999",
+  "SEVENOAKS": "#FFE599",
+  "OTFORD": "#EAD1DC",
+  "ASHFORD INTERNATIONAL": "#F39EFA",
+  "ASHFORD INTERNATIONAL (S)": "#E06666",
+  "TONBRIDGE": "#00B0F0",
+  "HASTINGS": "#B4A7D6",
+  "SITTINGBOURNE": "#92D050",
+  "RAMSGATE": "#46BDC6",
+  "DOVER PRIORY": "#FFD966",
+  "DEAL": "#FF00FF",
+  "MARGATE": "#FF6D01",
+  
+  
+  
+  // Add more as needed
+};
   
 
   const assignStationColors = (formattedSchedule) => {
-    const uniqueStations = new Set();
-    
-    Object.keys(formattedSchedule).forEach((worker) => {
-      daysOfWeek.forEach((day) => {
-        const station = formattedSchedule[worker][day].location;
-        if (station && station !== 'Unassigned') {
-          uniqueStations.add(station);
-        }
-      });
-    });
+  const uniqueStations = new Set();
 
-    const generatedColors = generateUniqueColors(uniqueStations.size);
-    const newStationColors = {};
-    
-    let index = 0;
-    uniqueStations.forEach((station) => {
-      newStationColors[station] = generatedColors[index];
-      index++;
+  Object.keys(formattedSchedule).forEach((worker) => {
+    daysOfWeek.forEach((day) => {
+      const station = formattedSchedule[worker][day].location;
+      if (station && station !== 'Unassigned') {
+        uniqueStations.add(station);
+      }
     });
+  });
 
-    setStationColors(newStationColors);
-  };
+  const newStationColors = {};
+
+  uniqueStations.forEach((station) => {
+  const upperCaseStation = station.toUpperCase();
+  if (predefinedStationColors[upperCaseStation]) {
+    newStationColors[station] = predefinedStationColors[upperCaseStation];
+  } else {
+    // Optional fallback
+    newStationColors[station] = "#cccccc";
+  }
+});
+
+
+  setStationColors(newStationColors);
+};
 
   const generateUniqueColors = (numColors) => {
     const colors = [];
@@ -198,114 +296,494 @@ setDatesOfWeek(newDatesOfWeek);
     return colors;
   };
 
+  const calculateShiftDuration = (timeRange) => {
+  if (!timeRange || !timeRange.includes('-')) return '0.00';
+  const [start, end] = timeRange.split('-');
+  if (!start || !end) return '0.00';
+  const startHour = parseInt(start.slice(0, 2), 10);
+  const startMin = parseInt(start.slice(2), 10);
+  const endHour = parseInt(end.slice(0, 2), 10);
+  const endMin = parseInt(end.slice(2), 10);
+  let startDate = new Date(0, 0, 0, startHour, startMin);
+  let endDate = new Date(0, 0, 0, endHour, endMin);
+  if (endDate <= startDate) {
+    endDate = new Date(0, 0, 1, endHour, endMin); // Handle midnight crossing
+  }
+  const diff = (endDate - startDate) / (1000 * 60 * 60);
+  return isNaN(diff) ? '0.00' : diff.toFixed(2);
+};
+
   const calculateHoursWorked = (workerSchedule) => {
-    let totalHours = 0;
+  let totalHours = 0;
+  const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-    daysOfWeek.forEach((day) => {
-      const entry = workerSchedule[day];
-      const timeRange = entry?.time;
+  daysOfWeek.forEach((day) => {
+    const entry = workerSchedule[day];
+    const timeRange = entry?.time;
 
-      if (timeRange && timeRange.includes('-')) {
-        const [start, end] = timeRange.split('-');
+    if (timeRange && timeRange.includes('-')) {
+      const [start, end] = timeRange.split('-');
 
-        if (start && end) {
-          const startHour = parseInt(start.slice(0, 2), 10);
-          const startMin = parseInt(start.slice(2), 10);
-          const endHour = parseInt(end.slice(0, 2), 10);
-          const endMin = parseInt(end.slice(2), 10);
+      if (start && end) {
+        const startHour = parseInt(start.slice(0, 2), 10);
+        const startMin = parseInt(start.slice(2), 10);
+        const endHour = parseInt(end.slice(0, 2), 10);
+        const endMin = parseInt(end.slice(2), 10);
 
-          const startDate = new Date(0, 0, 0, startHour, startMin);
-          const endDate = new Date(0, 0, 0, endHour, endMin);
-          const diff = (endDate - startDate) / (1000 * 60 * 60);
+        let startDate = new Date(0, 0, 0, startHour, startMin);
+        let endDate = new Date(0, 0, 0, endHour, endMin);
 
-          if (!isNaN(diff)) {
-            totalHours += diff;
-          }
+        // If end time is earlier than start time, assume it crosses midnight
+        if (endDate <= startDate) {
+          endDate = new Date(0, 0, 1, endHour, endMin); // Add one day to endDate
+        }
+
+        const diff = (endDate - startDate) / (1000 * 60 * 60);
+
+        if (!isNaN(diff)) {
+          totalHours += diff;
         }
       }
+    }
+  });
+
+  return totalHours.toFixed(2);
+};
+// Blend hex color with white by given opacity (0-1)
+
+const blendWithWhite = (hex, opacity) => {
+  hex = hex.replace(/^#/, '');
+  if (hex.length === 3) {
+    hex = hex.split('').map((c) => c + c).join('');
+  }
+  const r = parseInt(hex.substr(0, 2), 16);
+  const g = parseInt(hex.substr(2, 2), 16);
+  const b = parseInt(hex.substr(4, 2), 16);
+
+  const rBlended = Math.round(r + (255 - r) * opacity);
+  const gBlended = Math.round(g + (255 - g) * opacity);
+  const bBlended = Math.round(b + (255 - b) * opacity);
+
+  const toHex = (n) => n.toString(16).padStart(2, '0');
+
+  return 'FF' + toHex(rBlended) + toHex(gBlended) + toHex(bBlended);
+};
+
+const normalizeToARGB = (colorInput) => {
+  if (!colorInput) return 'FFF1F1F1';
+  let s = String(colorInput).trim();
+
+  const rgbMatch = s.match(/^rgb\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3})\)$/i);
+  if (rgbMatch) {
+    const r = Number(rgbMatch[1]).toString(16).padStart(2, '0');
+    const g = Number(rgbMatch[2]).toString(16).padStart(2, '0');
+    const b = Number(rgbMatch[3]).toString(16).padStart(2, '0');
+    return ('FF' + r + g + b).toUpperCase();
+  }
+
+  if (s.startsWith('#')) s = s.slice(1);
+  s = s.toUpperCase();
+
+  if (s.length === 3) {
+    s = s.split('').map((c) => c + c).join('');
+  }
+
+  if (s.length === 6) return 'FF' + s;
+  if (s.length === 8) return s;
+
+  return 'FFF1F1F1';
+};
+
+const exportToExcel = async () => {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Schedule');
+
+  /** -----------------------
+ *  HEADER BLOCK / TITLE
+ * ----------------------- */
+// Merge across full table width (daysOfWeek + 2 extra cols)
+const totalCols = daysOfWeek.length + 2;
+
+// Row 1: Title
+worksheet.mergeCells(1, 1, 1, totalCols);
+const titleCell = worksheet.getCell(1, 1);
+titleCell.value = 'Temporary Worker Timesheet & Roster';
+titleCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+titleCell.font = { bold: true, size: 16, name: 'Arial', color: { argb: 'FF000000' } };
+titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD3D3D3' } };
+titleCell.border = {
+  top: { style: 'thin', color: { argb: 'FF212121' } },
+  left: { style: 'thin', color: { argb: 'FF212121' } },
+  bottom: { style: 'thin', color: { argb: 'FF212121' } },
+  right: { style: 'thin', color: { argb: 'FF212121' } },
+};
+
+// Row 2: Empty spacer row (merged + filled, no borders)
+worksheet.addRow([]);
+worksheet.mergeCells(2, 1, 2, totalCols);
+const spacerCell = worksheet.getCell(2, 1);
+spacerCell.value = '';
+spacerCell.fill = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: 'FFD3D3D3' },
+};
+spacerCell.alignment = { vertical: 'middle', horizontal: 'center' };
+worksheet.getRow(2).height = 20;
+
+// Row 3: "Our Reference:" (left) | "Client:" (right)
+worksheet.mergeCells(3, 1, 3, Math.floor(totalCols / 2));
+worksheet.mergeCells(3, Math.floor(totalCols / 2) + 1, 3, totalCols);
+worksheet.getCell(3, 1).value = 'Our Reference:';
+worksheet.getCell(3, Math.floor(totalCols / 2) + 1).value = 'Client:';
+
+// Row 4: "Job Title:" (left) | "Purchase Order:" (right)
+worksheet.mergeCells(4, 1, 4, Math.floor(totalCols / 2));
+worksheet.mergeCells(4, Math.floor(totalCols / 2) + 1, 4, totalCols);
+worksheet.getCell(4, 1).value = 'Job Title:';
+worksheet.getCell(4, Math.floor(totalCols / 2) + 1).value = 'Purchase Order:';
+
+// Row 5: empty left | "Week Ending Date:" (right)
+worksheet.mergeCells(5, 1, 5, Math.floor(totalCols / 2));
+worksheet.mergeCells(5, Math.floor(totalCols / 2) + 1, 5, totalCols);
+worksheet.getCell(5, Math.floor(totalCols / 2) + 1).value = 'Week Ending Date:';
+
+// Style for rows 3–5
+for (let r = 3; r <= 5; r++) {
+  const row = worksheet.getRow(r);
+  row.height = 20;
+  row.eachCell((cell) => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFD3D3D3' },
+    };
+    cell.font = { bold: false, size: 12, name: 'Arial', color: { argb: 'FF000000' } };
+    cell.alignment = { vertical: 'middle', horizontal: 'left' };
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FF212121' } },
+      left: { style: 'thin', color: { argb: 'FF212121' } },
+      bottom: { style: 'thin', color: { argb: 'FF212121' } },
+      right: { style: 'thin', color: { argb: 'FF212121' } },
+    };
+  });
+}
+
+
+  /** -----------------------
+   *  SCHEDULE TABLE HEADERS
+   * ----------------------- */
+  const headers = ['Day', ...daysOfWeek, '72h Limit'];
+  const datesRow = ['Date', ...daysOfWeek.map((day) => datesOfWeek[day] || '—'), 'Total Hours'];
+
+  worksheet.addRow([]);
+  worksheet.addRow(headers);
+  worksheet.addRow(datesRow);
+
+  // Adjust header styling (rows 6 and 7 now, since 1–4 are the block and 5 is empty)
+  const headerStartRow = worksheet.lastRow.number - 1;
+  [headerStartRow, headerStartRow + 1].forEach((rowNum) => {
+    const row = worksheet.getRow(rowNum);
+    row.font = { bold: true, size: 12, name: 'Arial', color: { argb: 'FF212121' } };
+    row.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    row.eachCell((cell) => {
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF212121' } },
+        left: { style: 'thin', color: { argb: 'FF212121' } },
+        bottom: { style: 'thin', color: { argb: 'FF212121' } },
+        right: { style: 'thin', color: { argb: 'FF212121' } },
+      };
     });
+  });
 
-    return totalHours.toFixed(2);
-  };
+  /** -----------------------
+   *  WORKER ROWS
+   * ----------------------- */
+  Object.keys(schedule).forEach((worker) => {
+    const startRow = worksheet.lastRow.number + 1;
 
-  const exportToExcel = () => {
-    const data = [];
-
-    Object.keys(schedule).forEach((worker) => {
-      const row = { Worker: worker };
-      daysOfWeek.forEach((day) => {
-        const entry = schedule[worker][day];
-        row[day] = entry.location !== 'Unassigned' ? `${entry.location} (${entry.time})` : 'Unassigned';
-      });
-      row["Hours Worked"] = calculateHoursWorked(schedule[worker]);
-      data.push(row);
+    // Time row
+    const timeRow = [worker];
+    daysOfWeek.forEach((day) => {
+      const { time } = schedule[worker][day] || {};
+      timeRow.push(time || '—');
     });
+    timeRow.push('');
+    worksheet.addRow(timeRow);
 
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Schedule');
-    XLSX.writeFile(workbook, 'worker_schedule.xlsx');
-  };
+    // Location row
+    const locationRowValues = [''];
+    daysOfWeek.forEach((day) => {
+      const loc = (schedule[worker][day] && schedule[worker][day].location) || '—';
+      locationRowValues.push(loc);
+    });
+    locationRowValues.push(''); // No "72h limit" repeat here
+    const locRowRef = worksheet.addRow(locationRowValues);
 
-  const downloadDashboardAsPDF = () => {
-    const dashboard = document.querySelector('.dashboard-container');
-  
-    // Temporarily expand dashboard if needed
-    const originalOverflow = dashboard.style.overflow;
-    dashboard.style.overflow = 'visible';
-  
-    html2canvas(dashboard, {
-      scale: 2, // Higher quality
-      useCORS: true,
-      scrollY: -window.scrollY, // Fix position shift
-    }).then((canvas) => {
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('portrait', 'mm', 'a4');
-  
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-  
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-  
-      const pageHeightInPx = (canvas.width * pageHeight) / pageWidth;
-      let remainingHeight = canvas.height;
-      let position = 0;
-  
-      let pageCount = 0;
-  
-      while (remainingHeight > 0) {
-        const pageCanvas = document.createElement('canvas');
-        pageCanvas.width = canvas.width;
-        pageCanvas.height = Math.min(pageHeightInPx, remainingHeight);
-  
-        const ctx = pageCanvas.getContext('2d');
-        ctx.drawImage(
-          canvas,
-          0,
-          position,
-          canvas.width,
-          pageCanvas.height,
-          0,
-          0,
-          canvas.width,
-          pageCanvas.height
-        );
-  
-        const pageImgData = pageCanvas.toDataURL('image/png');
-        if (pageCount > 0) pdf.addPage();
-        const imgHeightOnPDF = (pageCanvas.height * imgWidth) / pageCanvas.width;
-        pdf.addImage(pageImgData, 'PNG', 0, 0, imgWidth, imgHeightOnPDF);
-  
-        position += pageCanvas.height;
-        remainingHeight -= pageCanvas.height;
-        pageCount++;
+    daysOfWeek.forEach((day, idx) => {
+      const colIndex = idx + 2;
+      const cell = locRowRef.getCell(colIndex);
+      const locVal = locationRowValues[colIndex - 1] ?? '';
+
+      let baseColor = '#f1f1f1';
+      try {
+        if (typeof getStationColor === 'function') baseColor = getStationColor(locVal) || baseColor;
+      } catch {
+        baseColor = '#f1f1f1';
       }
-  
-      pdf.save('dashboard.pdf');
-      dashboard.style.overflow = originalOverflow; // Restore styles
+
+      const argb = normalizeToARGB(baseColor); // Returns ARGB with full opacity
+
+
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } };
     });
+
+    // Hours row
+    const hoursRow = ['Hours Worked'];
+    daysOfWeek.forEach((day) => {
+      const time = schedule[worker][day] && schedule[worker][day].time;
+      const duration = calculateShiftDuration(time);
+      hoursRow.push(time && duration !== '0.00' ? `${duration}` : '—');
+    });
+    hoursRow.push(calculateHoursWorked(schedule[worker]));
+    worksheet.addRow(hoursRow);
+    // Set custom row heights for worker block
+worksheet.getRow(startRow).height = 70;       // Time row
+worksheet.getRow(startRow + 1).height = 50;   // Location row
+worksheet.getRow(startRow + 2).height = 30;   // Hours row
+
+
+    // Merge worker name cells
+    worksheet.mergeCells(`A${startRow}:A${startRow + 1}`);
+
+    // Style worker block
+    const nameCell = worksheet.getCell(`A${startRow}`);
+    nameCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD3D3D3' } };
+    nameCell.font = { bold: true, name: 'Arial', size: 11, color: { argb: 'FF212121' } };
+    nameCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    nameCell.border = {
+      top: { style: 'thin', color: { argb: 'FF212121' } },
+      left: { style: 'thin', color: { argb: 'FF212121' } },
+      bottom: { style: 'thin', color: { argb: 'FF212121' } },
+      right: { style: 'thin', color: { argb: 'FF212121' } },
+    };
+
+    for (let r = startRow; r <= startRow + 2; r++) {
+      const row = worksheet.getRow(r);
+      row.eachCell((cell, colNum) => {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF212121' } },
+          left: { style: 'thin', color: { argb: 'FF212121' } },
+          bottom: { style: 'thin', color: { argb: 'FF212121' } },
+          right: { style: 'thin', color: { argb: 'FF212121' } },
+        };
+        cell.font = { name: 'Arial', size: 11, color: { argb: 'FF212121' }, bold: colNum === 1 || r === startRow + 1 };
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      });
+    }
+
+    // Separator row
+    const separatorRow = worksheet.addRow(new Array(daysOfWeek.length + 2).fill(''));
+    separatorRow.height = 8;
+    separatorRow.eachCell({ includeEmpty: true }, (cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F4F4F' } };
+    });
+  });
+
+  worksheet.columns = [{ width: 25 }, ...daysOfWeek.map(() => ({ width: 20 })), { width: 15 }];
+
+  // Save
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  saveAs(blob, 'worker_schedule.xlsx');
+};
+
+  const downloadDashboardAsPDF = async () => {
+  const pdf = new jsPDF('portrait', 'mm', 'a4');
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const margin = 10;
+  const tableWidth = pageWidth - 2 * margin;
+  const colCount = daysOfWeek.length + 2; // Worker + 7 days + Hours Worked
+  const colWidth = tableWidth / colCount;
+  const rowHeight = 8; // Standard row height in mm
+  const headerRowHeight = 10;
+  const workerRowHeight = 18; // Adjusted for time/location/hours rows
+  const separatorRowHeight = 2;
+  let yPosition = margin;
+
+  // Helper function to convert hex to RGB
+  const hexToRgb = (hex) => {
+    hex = hex.replace(/^#/, '');
+    if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+    const r = parseInt(hex.substr(0, 2), 16);
+    const g = parseInt(hex.substr(2, 2), 16);
+    const b = parseInt(hex.substr(4, 2), 16);
+    return { r, g, b };
   };
+
+  // Helper function to normalize ARGB
+  const normalizeToARGB = (colorInput) => {
+    if (!colorInput) return 'FFF1F1F1';
+    let s = String(colorInput).trim();
+    if (s.startsWith('#')) s = s.slice(1);
+    s = s.toUpperCase();
+    if (s.length === 3) s = s.split('').map(c => c + c).join('');
+    if (s.length === 6) return 'FF' + s;
+    if (s.length === 8) return s;
+    return 'FFF1F1F1';
+  };
+
+  // Set font
+  pdf.setFont('Arial');
+
+  // *** Header Block ***
+  // Row 1: Title
+  pdf.setFontSize(16);
+  pdf.setFont('Arial', 'bold');
+  pdf.setTextColor(0, 0, 0);
+  pdf.setFillColor(211, 211, 211); // FFD3D3D3
+  pdf.rect(margin, yPosition, tableWidth, headerRowHeight, 'F');
+  pdf.text('Temporary Worker Timesheet & Roster', pageWidth / 2, yPosition + 7, { align: 'center' });
+  pdf.setLineWidth(0.2);
+  pdf.setDrawColor(33, 33, 33); // FF212121
+  pdf.rect(margin, yPosition, tableWidth, headerRowHeight);
+  yPosition += headerRowHeight;
+
+  // Row 2: Spacer
+  yPosition += 5; // Adjusted for 20px height (~5mm)
+  pdf.setFillColor(211, 211, 211);
+  pdf.rect(margin, yPosition, tableWidth, 5, 'F');
+  yPosition += 5;
+
+  // Rows 3-5: Reference, Job Title, Week Ending
+  const headerFields = [
+    { left: 'Our Reference:', right: 'Client:' },
+    { left: 'Job Title:', right: 'Purchase Order:' },
+    { left: '', right: 'Week Ending Date: ' + (datesOfWeek['Saturday'] || '—') },
+  ];
+  pdf.setFontSize(12);
+  pdf.setFont('Arial', 'normal');
+  headerFields.forEach(({ left, right }) => {
+    pdf.setFillColor(211, 211, 211);
+    pdf.rect(margin, yPosition, tableWidth / 2, rowHeight, 'F');
+    pdf.rect(margin + tableWidth / 2, yPosition, tableWidth / 2, rowHeight, 'F');
+    pdf.setTextColor(0, 0, 0);
+    pdf.text(left, margin + 2, yPosition + 6);
+    pdf.text(right, margin + tableWidth / 2 + 2, yPosition + 6);
+    pdf.rect(margin, yPosition, tableWidth / 2, rowHeight);
+    pdf.rect(margin + tableWidth / 2, yPosition, tableWidth / 2, rowHeight);
+    yPosition += rowHeight;
+  });
+
+  // Spacer row
+  yPosition += 2;
+
+  // *** Schedule Table Headers ***
+  const headers = ['Day', ...daysOfWeek, '72h Limit'];
+  const datesRow = ['Date', ...daysOfWeek.map(day => datesOfWeek[day] || '—'), 'Total Hours'];
+  [headers, datesRow].forEach(rowData => {
+    pdf.setFontSize(12);
+    pdf.setFont('Arial', 'bold');
+    pdf.setTextColor(33, 33, 33);
+    rowData.forEach((cell, idx) => {
+      const x = margin + idx * colWidth;
+      pdf.text(cell, x + colWidth / 2, yPosition + 6, { align: 'center' });
+      pdf.rect(x, yPosition, colWidth, rowHeight);
+    });
+    yPosition += rowHeight;
+  });
+
+  // *** Worker Rows ***
+  Object.keys(schedule).forEach((worker, workerIdx) => {
+    if (yPosition > pageHeight - margin - 3 * workerRowHeight - separatorRowHeight) {
+      pdf.addPage();
+      yPosition = margin;
+    }
+
+    const startRowY = yPosition;
+
+    // Time row
+    const timeRow = [worker];
+    daysOfWeek.forEach(day => {
+      const { time } = schedule[worker][day] || {};
+      timeRow.push(time || '—');
+    });
+    timeRow.push('');
+    timeRow.forEach((cell, idx) => {
+      const x = margin + idx * colWidth;
+      pdf.setFontSize(11);
+      pdf.setFont('Arial', idx === 0 ? 'bold' : 'normal');
+      pdf.setTextColor(33, 33, 33);
+      if (idx === 0) {
+        pdf.setFillColor(211, 211, 211);
+        pdf.rect(x, yPosition, colWidth, workerRowHeight * 2, 'F'); // Merged cell
+        pdf.text(cell, x + colWidth / 2, yPosition + workerRowHeight, { align: 'center', maxWidth: colWidth - 2 }); // Center vertically in merged cell
+      } else {
+        pdf.rect(x, yPosition, colWidth, workerRowHeight);
+        pdf.text(cell, x + colWidth / 2, yPosition + 8, { align: 'center', maxWidth: colWidth - 2 });
+      }
+    });
+    yPosition += workerRowHeight;
+
+    // Location row
+    const locationRow = [''];
+    daysOfWeek.forEach(day => {
+      const loc = (schedule[worker][day] && schedule[worker][day].location) || '—';
+      locationRow.push(loc);
+    });
+    locationRow.push('');
+    locationRow.forEach((cell, idx) => {
+      const x = margin + idx * colWidth;
+      pdf.setFontSize(8);
+      pdf.setFont('Arial', 'bold');
+      pdf.setTextColor(33, 33, 33);
+      if (idx > 0 && idx <= daysOfWeek.length) {
+        const locVal = locationRow[idx] || '—';
+        const baseColor = getStationColor(locVal) || '#f1f1f1';
+        const argb = normalizeToARGB(baseColor);
+        const { r, g, b } = hexToRgb(argb.slice(2));
+        pdf.setFillColor(r, g, b);
+        pdf.rect(x, yPosition, colWidth, workerRowHeight, 'F');
+      }
+      pdf.text(cell, x + colWidth / 2, yPosition + 8, { align: 'center', maxWidth: colWidth - 2 });
+      if (idx !== 0) {
+        pdf.rect(x, yPosition, colWidth, workerRowHeight);
+      }
+    });
+    yPosition += workerRowHeight;
+
+    // Hours row
+    const hoursRow = ['Hours Worked'];
+    daysOfWeek.forEach(day => {
+      const time = schedule[worker][day] && schedule[worker][day].time;
+      const duration = calculateShiftDuration(time);
+      hoursRow.push(time && duration !== '0.00' ? `${duration}` : '—');
+    });
+    hoursRow.push(calculateHoursWorked(schedule[worker]));
+    hoursRow.forEach((cell, idx) => {
+      const x = margin + idx * colWidth;
+      pdf.setFontSize(11);
+      pdf.setFont('Arial', idx === 0 ? 'bold' : 'normal');
+      pdf.setTextColor(33, 33, 33);
+      pdf.text(cell, x + colWidth / 2, yPosition + 8, { align: 'center', maxWidth: colWidth - 2 });
+      pdf.rect(x, yPosition, colWidth, workerRowHeight);
+    });
+    yPosition += workerRowHeight;
+
+    // Merge worker name cell
+    pdf.rect(margin, startRowY, colWidth, workerRowHeight * 2);
+
+    // Separator row
+    pdf.setFillColor(79, 79, 79); // FF4F4F4F
+    pdf.rect(margin, yPosition, tableWidth, separatorRowHeight, 'F');
+    yPosition += separatorRowHeight;
+  });
+
+  pdf.save('worker_schedule.pdf');
+};
   
   const handleUnassignedChange = (index, field, value) => {
     setUnassignedStations((prev) => {
@@ -410,6 +888,10 @@ const oldTime = oldAssignment.time || null;
   
 
   const handleChange = (worker, day, field, newValue) => {
+    if (isScheduleLocked) {
+    alert('Schedule is locked and cannot be modified.');
+    return;
+  }
     const prevValue = schedule[worker][day][field];
   
     // Ignore if no real change
@@ -645,6 +1127,22 @@ setUnassignedStations(unassigned);
   
     const organizationId = profile.organization_id;
   
+    // Check if any row for this week_ending is locked
+  const { data: lockedRows, error: fetchError } = await supabase
+    .from('schedule_entries')
+    .select('is_locked')
+    .eq('organization_id', organizationId)
+    .eq('week_ending', weekEndingDate)
+    .eq('is_locked', true)
+    .limit(1); // We only need one locked row to confirm the schedule is locked
+  if (fetchError) {
+    throw new Error('Failed to check lock status: ' + fetchError.message);
+  
+  }
+  // If any row is locked, the entire schedule is locked, so skip the upsert
+  if (lockedRows.length > 0) {
+    throw new Error('Cannot save schedule: the schedule for this week is locked.');
+  }
     // Flatten schedule
     const entries = [];
   
@@ -658,11 +1156,17 @@ setUnassignedStations(unassigned);
           time: entry.time || '',
           date: entry.date || null,
           week_ending: weekEndingDate,
+          is_locked: isScheduleLocked || false, // Use the current lock state from component
         };
         entries.push(entryObject);
       });
     });
   
+    // If no entries to upsert, return early
+  if (entries.length === 0) {
+    throw new Error('No entries to save.');
+  
+  }
   
     // Upsert into schedule_entries table
     const { error: upsertError } = await supabase
@@ -720,9 +1224,10 @@ setUnassignedStations(unassigned);
     // Convert flat rows back to nested structure
     const schedule = {};
     const datesOfWeek = {};
+    let isLocked = false;
   
     for (const row of rows) {
-      const { worker_name, day_of_week, location, time, date } = row;
+      const { worker_name, day_of_week, location, time, date, is_locked } = row;
   
       if (!schedule[worker_name]) {
         schedule[worker_name] = {};
@@ -737,6 +1242,7 @@ setUnassignedStations(unassigned);
       if (!datesOfWeek[day_of_week]) {
         datesOfWeek[day_of_week] = date;
       }
+      isLocked = is_locked; // Set lock state (assumes all rows for week_ending have same is_locked)
     }
     const weekEndingDated = new Date(weekEndingDate);
 
@@ -764,7 +1270,8 @@ setUnassignedStations(unassigned);
         }
       });
     });
-  
+
+    setIsScheduleLocked(isLocked); // Set the lock state
     return { schedule, datesOfWeek };
   };
 
@@ -829,10 +1336,104 @@ setUnassignedStations(unassigned);
     return { success: true, message: 'Schedule deleted successfully.' };
   };
   
+  const handleDragEnd = async (event) => {
+    if (isScheduleLocked) {
+    alert('Schedule is locked and cannot be modified.');
+    return;
+  }
+  console.log('Drag end event:', event);
+  const { active, over } = event;
+  if (!over || active.id === over.id) {
+    console.log('No valid drop:', { active, over });
+    return;
+  }
+  
+  try {
+    const [sourceWorker, sourceDay] = active.id.split('-');
+    const [destWorker, destDay] = over.id.split('-');
+    console.log('Source:', { sourceWorker, sourceDay }, 'Destination:', { destWorker, destDay });
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session?.user) {
+      console.error('Session error:', sessionError);
+      throw new Error('User not logged in');
+    }
+    const userId = session.user.id;
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('organization_id, user_name')
+      .eq('id', userId)
+      .single();
+    if (profileError || !profile) {
+      console.error('Profile error:', profileError);
+      throw new Error('Could not fetch user profile');
+    }
+    const organizationId = profile.organization_id;
+    const userName = profile.user_name;
+    setSchedule((prevSchedule) => {
+      // Deep copy to ensure immutability
+      const updatedSchedule = JSON.parse(JSON.stringify(prevSchedule));
+      const sourceAssignment = { ...updatedSchedule[sourceWorker][sourceDay] };
+      const destAssignment = { ...updatedSchedule[destWorker][destDay] };
+      console.log('Before swap:', { sourceAssignment, destAssignment });
+      // Swap assignments
+      updatedSchedule[sourceWorker][sourceDay] = { ...destAssignment };
+      updatedSchedule[destWorker][destDay] = { ...sourceAssignment };
+      console.log('After swap:', updatedSchedule);
+      // Log audit changes
+      setAuditLogBuffer((prevLog) => {
+        const newLog = [
+          ...prevLog,
+          {
+            worker_name: sourceWorker,
+            day_of_week: sourceDay,
+            field: 'location',
+            old_value: sourceAssignment.location,
+            new_value: destAssignment.location,
+          },
+          {
+            worker_name: sourceWorker,
+            day_of_week: sourceDay,
+            field: 'time',
+            old_value: sourceAssignment.time,
+            new_value: destAssignment.time,
+          },
+          {
+            worker_name: destWorker,
+            day_of_week: destDay,
+            field: 'location',
+            old_value: destAssignment.location,
+            new_value: sourceAssignment.location,
+          },
+          {
+            worker_name: destWorker,
+            day_of_week: destDay,
+            field: 'time',
+            old_value: destAssignment.time,
+            new_value: sourceAssignment.time,
+          },
+        ];
+        console.log('Audit log buffer:', newLog);
+        return newLog;
+      });
+      return updatedSchedule;
+    });
+    // Log state after setSchedule
+    setTimeout(() => {
+      console.log('State after setSchedule:', schedule);
+    }, 0);
+    console.log('Calling handleSave...');
+    //await handleSave();
+    console.log('Save completed');
+  } catch (error) {
+    console.error('Drag end error:', error);
+    alert('Failed to save changes: ' + error.message);
+  } finally {
+  }
+};
 
 
   return (
-  <div className="dashboard-container">
+  <div className={`dashboard-container ${isScheduleLocked ? 'locked' : ''}`}>
     <h1 className="dashboard-header">Dashboard</h1>
     <p className="dashboard-description">Welcome to the Dashboard! Below is the schedule for the stations and allocated workers.</p>
     <div className='button-container'>
@@ -887,6 +1488,61 @@ setUnassignedStations(unassigned);
           </div>
         </div>
       )}
+      <button
+          className="lock-button"
+          onClick={async () => {
+            const newLockState = !isScheduleLocked;
+            setIsScheduleLocked(newLockState);
+
+            const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+            if (sessionError || !session?.user) {
+              console.error('Session error:', sessionError);
+              return;
+            }
+
+            const userId = session.user.id;
+            const { data: profile, error: profileError } = await supabase
+              .from('profiles')
+              .select('organization_id, user_name')
+              .eq('id', userId)
+              .single();
+
+            if (profileError || !profile) {
+              console.error('Profile error:', profileError);
+              return;
+            }
+
+            const organizationId = profile.organization_id;
+            const userName = profile.user_name;
+            const weekEndingDate = datesOfWeek['Saturday'];
+            const { error: updateError } = await supabase
+              .from('schedule_entries')
+              .update({ is_locked: newLockState })
+              .eq('organization_id', organizationId)
+              .eq('week_ending', weekEndingDate);
+
+            if (updateError) {
+              console.error('Error updating lock state:', updateError);
+              alert('Failed to update lock state in database.');
+              return;
+            }
+
+            await supabase.from('schedule_audit').insert([{
+              organization_id: organizationId,
+              worker_name: null,
+              day_of_week: null,
+              old_location: null,
+              new_location: null,
+              old_time: null,
+              new_time: null,
+              changed_by: userName,
+              week_ending: weekEndingDate,
+              comments: newLockState ? 'Schedule Locked' : 'Schedule Unlocked',
+            }]);
+          }}
+        >
+          {isScheduleLocked ? 'Unlock Schedule' : 'Lock Schedule'}
+        </button>
       <div className="search-container">
         {!showDelete ? (
           <button className="search-schedule-button" onClick={() => setShowDelete(true)}>
@@ -982,20 +1638,8 @@ setUnassignedStations(unassigned);
         {successMessage}
       </div>
     )}
+    <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
     <div className="dashboard-table-wrapper">
-      {console.log('Schedule state:', JSON.stringify(schedule))}
-      {console.log('Station order:', stationOrder)}
-      {console.log('Days of week:', daysOfWeek)}
-      {console.log('All locations in schedule:', [
-        ...new Set(
-          Object.values(schedule)
-            .flatMap((workerSchedule) =>
-              Object.values(workerSchedule).map((entry) => entry.location)
-            )
-            .filter((location) => location && location !== 'Unassigned')
-        ),
-      ])}
-      {console.log('Station colors:', stationColors)}
       <table className="dashboard-table">
         <thead>
           <tr>
@@ -1011,140 +1655,134 @@ setUnassignedStations(unassigned);
         </thead>
         <tbody>
           {stationOrder.map((station, stationIndex) => {
-            const workersWithStation = Object.keys(schedule).filter((worker) => {
-              const hasStation = daysOfWeek.some((day) => {
-                const locationMatch =
-                  schedule[worker][day]?.location?.toLowerCase() === station.toLowerCase();
-                console.log(
-                  `Checking worker: ${worker}, day: ${day}, station: ${station}, location: ${
-                    schedule[worker][day]?.location
-                  }, normalized station: ${station.toLowerCase()}, normalized location: ${
-                    schedule[worker][day]?.location?.toLowerCase()
-                  }, match: ${locationMatch}`
-                );
-                return locationMatch;
-              });
-              return hasStation;
-            });
-            console.log(`Workers for station ${station}:`, workersWithStation);
-            return workersWithStation.map((worker, workerIndex) => {
-              const hours = calculateHoursWorked(schedule[worker]);
-              console.log(`Calculating hours for ${worker}:`, schedule[worker], `Result: ${hours}`);
-              return (
-                <tr key={`${worker}-${station}`}>
-                  <td>{worker}</td>
-                  {daysOfWeek.map((day) => {
-                    const daySchedule = schedule[worker][day];
-                    const isStationMatch = daySchedule?.location?.toLowerCase() === station.toLowerCase();
-                    const stationColor = isStationMatch
-                      ? getStationColor(daySchedule.location) // Use original location for color
-                      : '#f1f1f1';
-                    console.log(
-                      `Rendering cell - Worker: ${worker}, Day: ${day}, Station: ${station}, DaySchedule:`,
-                      daySchedule,
-                      `isStationMatch: ${isStationMatch}, Color: ${stationColor}`
-                    );
-                    return (
-                      <td
-                        key={day}
-                        className={isStationMatch ? 'scheduled' : 'unassigned'}
-                        style={{ backgroundColor: stationColor }}
-                      >
-                        <input
-                          type="text"
-                          value={isStationMatch ? daySchedule.location : ''}
-                          onFocus={() =>
-                            setFocusedFieldValue({
-                              worker,
-                              day,
-                              field: 'location',
-                              value: daySchedule.location,
-                            })
-                          }
-                          onChange={(e) =>
-                            handleChange(worker, day, 'location', e.target.value)
-                          }
-                          placeholder="Location"
-                        />
-                        <input
-                          type="text"
-                          value={isStationMatch ? daySchedule.time : ''}
-                          onFocus={() =>
-                            setFocusedFieldValue({
-                              worker,
-                              day,
-                              field: 'time',
-                              value: daySchedule.time,
-                            })
-                          }
-                          onChange={(e) =>
-                            handleChange(worker, day, 'time', e.target.value)
-                          }
-                          placeholder="Time"
-                        />
-                      </td>
-                    );
-                  })}
-                  <td>
-                    {workerIndex === 0 ? hours : ''} {/* Show hours only on first row for each worker */}
-                  </td>
-                </tr>
-              );
-            });
+  const workersWithStation = Object.keys(schedule).filter((worker) => {
+    const hasStation = daysOfWeek.some((day) => {
+      const locationMatch =
+        schedule[worker][day]?.location?.toLowerCase() === station.toLowerCase();
+      console.log(
+        `Checking worker: ${worker}, day: ${day}, station: ${station}, location: ${
+          schedule[worker][day]?.location
+        }, normalized station: ${station.toLowerCase()}, normalized location: ${
+          schedule[worker][day]?.location?.toLowerCase()
+        }, match: ${locationMatch}`
+      );
+      return locationMatch;
+    });
+    return hasStation;
+  });
+  console.log(`Workers for station ${station}:`, workersWithStation);
+  return workersWithStation.map((worker, workerIndex) => {
+    const hours = calculateHoursWorked(schedule[worker]);
+    console.log(`Calculating hours for ${worker}:`, schedule[worker], `Result: ${hours}`);
+    
+    return (
+      <tr key={`${worker}-${station}`}>
+        <td>{worker}</td>
+
+        {/* Adding Sortable Context for Drag-and-Drop Reordering of Days */}
+        <SortableContext
+          items={daysOfWeek.map((day) => `${worker}-${day}`)} // Unique id for each day of the worker
+          strategy={rectSortingStrategy}  // Optional: You can change the strategy depending on layout
+        >
+          {daysOfWeek.map((day) => {
+            const daySchedule = schedule[worker][day];
+            const isStationMatch = daySchedule?.location?.toLowerCase() === station.toLowerCase();
+            const stationColor = isStationMatch
+              ? getStationColor(daySchedule.location) // Use original location for color
+              : '#f1f1f1';
+
+            console.log(
+              `Rendering cell - Worker: ${worker}, Day: ${day}, Station: ${station}, DaySchedule:`,
+              daySchedule,
+              `isStationMatch: ${isStationMatch}, Color: ${stationColor}`
+            );
+            
+            // Render each day's cell as a sortable item
+            const id = `${worker}-${day}`;
+            return (
+              <SortableItem
+                key={id}
+                id={id}
+                worker={worker}
+                day={day}
+                daySchedule={daySchedule}
+                stationColor={stationColor}
+                handleChange={handleChange}
+                setFocusedFieldValue={setFocusedFieldValue}
+                calculateShiftDuration={calculateShiftDuration}
+                isScheduleLocked={isScheduleLocked}
+              />
+            );
           })}
+        </SortableContext>
+
+        {/* Display hours in the first row only */}
+        <td>
+          {workerIndex === 0 ? hours : ''} {/* Show hours only on first row for each worker */}
+        </td>
+      </tr>
+    );
+  });
+})}
         </tbody>
       </table>
     </div>
-    {unassignedStations.length > 0 && (
-      <div className="unassigned-section">
-        <h2>🛠️ Unassigned Stations</h2>
-        <table className="unassigned-table">
-          <thead>
-            <tr>
-              <th>Day</th>
-              <th>Location</th>
-              <th>Time</th>
-              <th>Assign to Worker</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {unassignedStations.map((station, index) => (
-              <tr key={index}>
-                <td>{station.day}</td>
-                <td>
-                  <input
-                    type="text"
-                    value={station.location}
-                    onChange={(e) => handleUnassignedChange(index, 'location', e.target.value)}
-                  />
-                </td>
-                <td>
-                  <input
-                    type="text"
-                    value={station.time}
-                    onChange={(e) => handleUnassignedChange(index, 'time', e.target.value)}
-                  />
-                </td>
-                <td>
-                  <input
-                    type="text"
-                    placeholder="Worker name"
-                    value={station.assignedWorker || ''}
-                    onChange={(e) => handleUnassignedChange(index, 'assignedWorker', e.target.value)}
-                  />
-                </td>
-                <td>
-                  <button onClick={() => assignUnassignedStation(index)}>Assign</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    )}
+    </DndContext>
+      {unassignedStations.length > 0 && (
+  <div className="unassigned-section">
+    <h2>🛠️ Unassigned Stations</h2>
+    <table className="unassigned-table">
+      <thead>
+        <tr>
+          <th>Day</th>
+          <th>Location</th>
+          <th>Time</th>
+          <th>Assign to Worker</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {unassignedStations.map((station, index) => (
+          <tr key={index}>
+            <td>{station.day}</td>
+            <td>
+              <input
+                type="text"
+                value={station.location}
+                onChange={(e) => handleUnassignedChange(index, 'location', e.target.value)}
+                isabled={isScheduleLocked}
+              />
+            </td>
+            <td>
+              <input
+                type="text"
+                value={station.time}
+                onChange={(e) => handleUnassignedChange(index, 'time', e.target.value)}
+                isabled={isScheduleLocked}
+              />
+            </td>
+            <td>
+              <input
+                type="text"
+                placeholder="Worker name"
+                value={station.assignedWorker || ''}
+                onChange={(e) => handleUnassignedChange(index, 'assignedWorker', e.target.value)}
+                isabled={isScheduleLocked}
+              />
+            </td>
+            <td>
+              <button onClick={() => assignUnassignedStation(index)}disabled={isScheduleLocked}>Assign</button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   </div>
-);
+)}
+
+
+    </div>
+  );
 };
 
 export default Dashboard;

@@ -105,6 +105,9 @@ const Workers = () => {
           friday: updatedWorker.friday,
           saturday: updatedWorker.saturday,
           sunday: updatedWorker.sunday,
+          email: updatedWorker.email, // Save email
+          mobile_number: updatedWorker.mobile_number, // Save mobile number
+          payroll_number: updatedWorker.payroll_number, // Save payroll number
         })
         .eq('id', updatedWorker.id)
         .select();
@@ -301,6 +304,34 @@ const Workers = () => {
     onChange={(e) => handleModalInputChange('canworkstations', e.target.value)}  // Directly handle string input
   />
 </label>
+
+{/* New Fields to be displayed */}
+      <label>
+        Email:
+        <input
+          type="email"
+          value={selectedWorker.email || ''}
+          onChange={(e) => handleModalInputChange('email', e.target.value)}
+        />
+      </label>
+
+      <label>
+        Mobile Number:
+        <input
+          type="text"
+          value={selectedWorker.mobile_number || ''}
+          onChange={(e) => handleModalInputChange('mobile_number', e.target.value)}
+        />
+      </label>
+
+      <label>
+        Payroll Number:
+        <input
+          type="text"
+          value={selectedWorker.payroll_number || ''}
+          onChange={(e) => handleModalInputChange('payroll_number', e.target.value)}
+        />
+      </label>
 
 
             <div className="modal-buttons">
