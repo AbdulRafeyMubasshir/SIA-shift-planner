@@ -288,13 +288,17 @@ const Workers = () => {
             </label>
             {['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].map((day) => (
               <label key={day}>
-                {day.charAt(0).toUpperCase() + day.slice(1)}:
-                <input
-                  type="text"
-                  value={selectedWorker[day] || ''}
-                  onChange={(e) => handleModalInputChange(day, e.target.value)}
-                />
-              </label>
+          {day.charAt(0).toUpperCase() + day.slice(1)}:
+          <select
+            value={selectedWorker[day] || ''}
+            onChange={(e) => handleModalInputChange(day, e.target.value)}
+          >
+            <option value="">Select</option>
+            <option value="Early">Early</option>
+            <option value="Late">Late</option>
+            <option value="Any">Any</option>
+          </select>
+        </label>
             ))}
             <label>
   Can Work Stations:
