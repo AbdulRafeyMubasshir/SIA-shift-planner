@@ -82,63 +82,67 @@ const Workers = () => {
   
 
   const handleSaveModal = async () => {
-    // Convert canworkstations string to array before saving
-    const updatedWorker = {
-      ...selectedWorker,
-      canworkstations: selectedWorker.canworkstations
-        .split(',')
-        .map((item) => item.trim())
-        .filter((item) => item !== ''),
-    };
-  
-    if (updatedWorker.id) {
-      // Update existing worker
-      const { data, error } = await supabase
-        .from('workers')
-        .update({
-          name: updatedWorker.name,
-          canworkstations: updatedWorker.canworkstations, // Save array form
-          monday: updatedWorker.monday,
-          tuesday: updatedWorker.tuesday,
-          wednesday: updatedWorker.wednesday,
-          thursday: updatedWorker.thursday,
-          friday: updatedWorker.friday,
-          saturday: updatedWorker.saturday,
-          sunday: updatedWorker.sunday,
-          email: updatedWorker.email, // Save email
-          mobile_number: updatedWorker.mobile_number, // Save mobile number
-          payroll_number: updatedWorker.payroll_number, // Save payroll number
-        })
-        .eq('id', updatedWorker.id)
-        .select();
-  
-      if (error) {
-        console.error('Error updating worker:', error);
-      } else {
-        setWorkers((prevWorkers) =>
-          prevWorkers.map((worker) =>
-            worker.id === updatedWorker.id ? data[0] : worker
-          )
-        );
-      }
-    } else {
-      // Insert new worker
-      const { data, error } = await supabase
-        .from('workers')
-        .insert([{ ...updatedWorker, organization_id: organizationId }])
-        .select();
-  
-      if (error) {
-        console.error('Error saving new worker:', error);
-      } else {
-        setWorkers((prevWorkers) => [...prevWorkers, data[0]]);
-      }
-    }
-  
-    // Close modal and reset selected worker
-    setShowModal(false);
-    setSelectedWorker(null);
+  // Trim the name field to remove leading/trailing spaces
+  const trimmedName = selectedWorker.name.trim();
+
+  // Convert canworkstations string to array before saving
+  const updatedWorker = {
+    ...selectedWorker,
+    name: trimmedName, // Use trimmed name
+    canworkstations: selectedWorker.canworkstations
+      .split(',')
+      .map((item) => item.trim())
+      .filter((item) => item !== ''),
   };
+
+  if (updatedWorker.id) {
+    // Update existing worker
+    const { data, error } = await supabase
+      .from('workers')
+      .update({
+        name: updatedWorker.name,
+        canworkstations: updatedWorker.canworkstations, // Save array form
+        monday: updatedWorker.monday,
+        tuesday: updatedWorker.tuesday,
+        wednesday: updatedWorker.wednesday,
+        thursday: updatedWorker.thursday,
+        friday: updatedWorker.friday,
+        saturday: updatedWorker.saturday,
+        sunday: updatedWorker.sunday,
+        email: updatedWorker.email,
+        mobile_number: updatedWorker.mobile_number,
+        payroll_number: updatedWorker.payroll_number,
+      })
+      .eq('id', updatedWorker.id)
+      .select();
+
+    if (error) {
+      console.error('Error updating worker:', error);
+    } else {
+      setWorkers((prevWorkers) =>
+        prevWorkers.map((worker) =>
+          worker.id === updatedWorker.id ? data[0] : worker
+        )
+      );
+    }
+  } else {
+    // Insert new worker
+    const { data, error } = await supabase
+      .from('workers')
+      .insert([{ ...updatedWorker, organization_id: organizationId }])
+      .select();
+
+    if (error) {
+      console.error('Error saving new worker:', error);
+    } else {
+      setWorkers((prevWorkers) => [...prevWorkers, data[0]]);
+    }
+  }
+
+  // Close modal and reset selected worker
+  setShowModal(false);
+  setSelectedWorker(null);
+};
   
   
 

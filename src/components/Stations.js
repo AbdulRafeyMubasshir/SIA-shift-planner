@@ -3,6 +3,12 @@ import * as XLSX from 'xlsx';
 import { supabase } from '../supabaseClient';
 import './Stations.css';
 
+const capitalizeFirstLetter = (str) => {
+  if (!str || typeof str !== 'string') return '';
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+};
+const trimString = (str) => (str && typeof str === 'string' ? str.trim() : '');
+
 const excelDateToJS = (excelSerial) => {
   const date = new Date(Math.round((excelSerial - 25569) * 86400 * 1000));
   return date.toISOString().split('T')[0];
@@ -75,22 +81,22 @@ const Stations = () => {
       const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
       const formattedData = jsonData.map((row) => {
-        const normalizedRow = Object.keys(row).reduce((acc, key) => {
-          acc[key.toLowerCase()] = row[key];
-          return acc;
-        }, {});
+  const normalizedRow = Object.keys(row).reduce((acc, key) => {
+    acc[key.toLowerCase()] = row[key];
+    return acc;
+  }, {});
 
-        return {
-          organization_id: organizationId,
-          date: typeof normalizedRow.date === 'number'
-            ? excelDateToJS(normalizedRow.date)
-            : normalizedRow.date || '',
-          day: normalizedRow.day || '',
-          location: normalizedRow.location || '',
-          time: normalizedRow.time || '',
-          hours: normalizedRow.hours || '',
-        };
-      });
+  return {
+    organization_id: organizationId,
+    date: typeof normalizedRow.date === 'number'
+      ? excelDateToJS(normalizedRow.date)
+      : normalizedRow.date || '',
+    day: capitalizeFirstLetter(normalizedRow.day || ''),
+    location: trimString(normalizedRow.location || ''),
+    time: normalizedRow.time || '',
+    hours: normalizedRow.hours || '',
+  };
+});
 
       const { error } = await supabase
         .from('stations')
@@ -129,27 +135,33 @@ const Stations = () => {
   };
 
   const handleSaveModal = async () => {
-    const { error } = await supabase
-      .from('stations')
-      .update({
-        date: selectedStation.date,
-        day: selectedStation.day,
-        location: selectedStation.location,
-        time: selectedStation.time,
-        hours: selectedStation.hours,
-      })
-      .eq('id', selectedStation.id);
+  const { error } = await supabase
+    .from('stations')
+    .update({
+      date: selectedStation.date,
+      day: capitalizeFirstLetter(selectedStation.day),
+      location: trimString(selectedStation.location),
+      time: selectedStation.time,
+      hours: selectedStation.hours,
+    })
+    .eq('id', selectedStation.id);
 
-    if (error) {
-      console.error('Update error:', error.message);
-    } else {
-      const updatedList = stations.map((s) =>
-        s.id === selectedStation.id ? selectedStation : s
-      );
-      setStations(updatedList);
-      setShowModal(false);
-    }
-  };
+  if (error) {
+    console.error('Update error:', error.message);
+  } else {
+    const updatedList = stations.map((s) =>
+      s.id === selectedStation.id
+        ? {
+            ...selectedStation,
+            day: capitalizeFirstLetter(selectedStation.day),
+            location: trimString(selectedStation.location),
+          }
+        : s
+    );
+    setStations(updatedList);
+    setShowModal(false);
+  }
+};
 
   const handleCloseModal = () => {
     setShowModal(false);
