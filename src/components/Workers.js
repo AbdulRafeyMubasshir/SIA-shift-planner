@@ -85,6 +85,12 @@ const Workers = () => {
   // Trim the name field to remove leading/trailing spaces
   const trimmedName = selectedWorker.name.trim();
 
+  // Validate name is not empty
+  if (!trimmedName) {
+    alert('Worker name cannot be empty.');
+    return;
+  }
+
   // Convert canworkstations string to array before saving
   const updatedWorker = {
     ...selectedWorker,
@@ -118,6 +124,7 @@ const Workers = () => {
 
     if (error) {
       console.error('Error updating worker:', error);
+      alert('Failed to update worker: ' + error.message);
     } else {
       setWorkers((prevWorkers) =>
         prevWorkers.map((worker) =>
@@ -126,6 +133,24 @@ const Workers = () => {
       );
     }
   } else {
+    // Check if worker name already exists (case-insensitive)
+    const { data: existingWorker, error: checkError } = await supabase
+      .from('workers')
+      .select('name')
+      .eq('organization_id', organizationId)
+      .ilike('name', trimmedName);
+
+    if (checkError) {
+      console.error('Error checking for existing worker:', checkError);
+      alert('Failed to check for existing worker: ' + checkError.message);
+      return;
+    }
+
+    if (existingWorker.length > 0) {
+      alert(`Worker "${trimmedName}" already exists in the database.`);
+      return;
+    }
+
     // Insert new worker
     const { data, error } = await supabase
       .from('workers')
@@ -134,6 +159,7 @@ const Workers = () => {
 
     if (error) {
       console.error('Error saving new worker:', error);
+      alert('Failed to save new worker: ' + error.message);
     } else {
       setWorkers((prevWorkers) => [...prevWorkers, data[0]]);
     }

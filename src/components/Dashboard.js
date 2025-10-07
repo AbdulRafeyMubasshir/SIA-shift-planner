@@ -12,6 +12,7 @@ import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 
 // SortableItem component for each table cell
+
 // SortableItem component for each table cell
 const SortableItem = ({ id, worker, day, daySchedule, stationColor, handleChange, setFocusedFieldValue, calculateShiftDuration, isScheduleLocked }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: isScheduleLocked });
@@ -94,6 +95,15 @@ const Dashboard = () => {
   const [isScheduleLocked, setIsScheduleLocked] = useState(false);
   const stationOrder = ['Ashford', 'Dover Priory', 'Tonbridge', 'Rainham', 'Sittingbourne', 'Faversham', 'Canterbury East', 'Chatham', 'Hastings', 'Strood', 'Rochester', 'Gillingham', 'Woolwich Arsenal', 'Lewisham', 'Dartford', 'Gravesend', 'Maidstone East', 'Brixton']; 
   const [workers, setWorkers] = useState([]);
+// Identify workers with no assigned shifts
+const unassignedWorkers = Object.keys(schedule).filter((worker) =>
+  daysOfWeek.every((day) => schedule[worker][day]?.location === 'Unassigned')
+);
+  // Calculate assigned and unassigned stations
+const assignedStationsCount = Object.values(schedule).reduce((count, workerSchedule) => {
+  return count + daysOfWeek.filter(day => workerSchedule[day]?.location && workerSchedule[day].location !== 'Unassigned').length;
+}, 0);
+const unassignedStationsCount = unassignedStations.length;
 
   useEffect(() => {
   const fetchWorkers = async () => {
@@ -1694,6 +1704,11 @@ setUnassignedStations(unassigned);
         {successMessage}
       </div>
     )}
+    <div className="stations-summary">
+  <h3>Stations Summary</h3>
+  <p>Assigned Stations: {assignedStationsCount}</p>
+  <p>Unassigned Stations: {unassignedStationsCount}</p>
+</div>
     <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
     <div className="dashboard-table-wrapper">
       <table className="dashboard-table">
@@ -1710,77 +1725,112 @@ setUnassignedStations(unassigned);
           </tr>
         </thead>
         <tbody>
-          {stationOrder.map((station, stationIndex) => {
-  const workersWithStation = Object.keys(schedule).filter((worker) => {
-    const hasStation = daysOfWeek.some((day) => {
-      const locationMatch =
-        schedule[worker][day]?.location?.toLowerCase() === station.toLowerCase();
-      console.log(
-        `Checking worker: ${worker}, day: ${day}, station: ${station}, location: ${
-          schedule[worker][day]?.location
-        }, normalized station: ${station.toLowerCase()}, normalized location: ${
-          schedule[worker][day]?.location?.toLowerCase()
-        }, match: ${locationMatch}`
-      );
-      return locationMatch;
+  {(() => {
+    const renderedWorkers = new Set(); // Track rendered workers
+
+    // Render workers assigned to stations in stationOrder
+    const assignedRows = stationOrder.flatMap((station, stationIndex) => {
+      const workersWithStation = Object.keys(schedule).filter((worker) => {
+        return (
+          !renderedWorkers.has(worker) && // Skip if worker already rendered
+          daysOfWeek.some((day) => {
+            const locationMatch =
+              schedule[worker][day]?.location?.toLowerCase() === station.toLowerCase();
+            return locationMatch;
+          })
+        );
+      });
+
+      // Add workers to renderedWorkers Set
+      workersWithStation.forEach((worker) => renderedWorkers.add(worker));
+
+      return workersWithStation.map((worker, workerIndex) => {
+        const hours = calculateHoursWorked(schedule[worker]);
+
+        return (
+          <tr key={`${worker}-${stationIndex}`}>
+            <td>{worker}</td>
+
+            {/* Adding Sortable Context for Drag-and-Drop Reordering of Days */}
+            <SortableContext
+              items={daysOfWeek.map((day) => `${worker}-${day}`)}
+              strategy={rectSortingStrategy}
+            >
+              {daysOfWeek.map((day) => {
+                const daySchedule = schedule[worker][day] || { location: 'Unassigned', time: '' };
+                const stationColor =
+                  daySchedule.location && daySchedule.location !== 'Unassigned'
+                    ? getStationColor(daySchedule.location)
+                    : '#f1f1f1';
+
+                const id = `${worker}-${day}`;
+                return (
+                  <SortableItem
+                    key={id}
+                    id={id}
+                    worker={worker}
+                    day={day}
+                    daySchedule={daySchedule}
+                    stationColor={stationColor}
+                    handleChange={handleChange}
+                    setFocusedFieldValue={setFocusedFieldValue}
+                    calculateShiftDuration={calculateShiftDuration}
+                    isScheduleLocked={isScheduleLocked}
+                  />
+                );
+              })}
+            </SortableContext>
+
+            <td>{hours}</td>
+          </tr>
+        );
+      });
     });
-    return hasStation;
-  });
-  console.log(`Workers for station ${station}:`, workersWithStation);
-  return workersWithStation.map((worker, workerIndex) => {
-    const hours = calculateHoursWorked(schedule[worker]);
-    console.log(`Calculating hours for ${worker}:`, schedule[worker], `Result: ${hours}`);
-    
-    return (
-      <tr key={`${worker}-${station}`}>
-        <td>{worker}</td>
 
-        {/* Adding Sortable Context for Drag-and-Drop Reordering of Days */}
-        <SortableContext
-          items={daysOfWeek.map((day) => `${worker}-${day}`)} // Unique id for each day of the worker
-          strategy={rectSortingStrategy}  // Optional: You can change the strategy depending on layout
-        >
-          {daysOfWeek.map((day) => {
-            const daySchedule = schedule[worker][day];
-            const isStationMatch = daySchedule?.location?.toLowerCase() === station.toLowerCase();
-            const stationColor = isStationMatch
-              ? getStationColor(daySchedule.location) // Use original location for color
-              : '#f1f1f1';
+    // Render unassigned workers
+    const unassignedRows = unassignedWorkers.map((worker, workerIndex) => {
+      const hours = calculateHoursWorked(schedule[worker]);
 
-            console.log(
-              `Rendering cell - Worker: ${worker}, Day: ${day}, Station: ${station}, DaySchedule:`,
-              daySchedule,
-              `isStationMatch: ${isStationMatch}, Color: ${stationColor}`
-            );
-            
-            // Render each day's cell as a sortable item
-            const id = `${worker}-${day}`;
-            return (
-              <SortableItem
-                key={id}
-                id={id}
-                worker={worker}
-                day={day}
-                daySchedule={daySchedule}
-                stationColor={stationColor}
-                handleChange={handleChange}
-                setFocusedFieldValue={setFocusedFieldValue}
-                calculateShiftDuration={calculateShiftDuration}
-                isScheduleLocked={isScheduleLocked}
-              />
-            );
-          })}
-        </SortableContext>
+      return (
+        <tr key={`${worker}-unassigned-${workerIndex}`}>
+          <td>{worker}</td>
 
-        {/* Display hours in the first row only */}
-        <td>
-          {workerIndex === 0 ? hours : ''} {/* Show hours only on first row for each worker */}
-        </td>
-      </tr>
-    );
-  });
-})}
-        </tbody>
+          {/* Adding Sortable Context for Drag-and-Drop Reordering of Days */}
+          <SortableContext
+            items={daysOfWeek.map((day) => `${worker}-${day}`)}
+            strategy={rectSortingStrategy}
+          >
+            {daysOfWeek.map((day) => {
+              const daySchedule = schedule[worker][day] || { location: 'Unassigned', time: '' };
+              const stationColor = '#f1f1f1'; // Default color for unassigned
+
+              const id = `${worker}-${day}`;
+              return (
+                <SortableItem
+                  key={id}
+                  id={id}
+                  worker={worker}
+                  day={day}
+                  daySchedule={daySchedule}
+                  stationColor={stationColor}
+                  handleChange={handleChange}
+                  setFocusedFieldValue={setFocusedFieldValue}
+                  calculateShiftDuration={calculateShiftDuration}
+                  isScheduleLocked={isScheduleLocked}
+                />
+              );
+            })}
+          </SortableContext>
+
+          <td>{hours}</td>
+        </tr>
+      );
+    });
+
+    // Combine assigned and unassigned rows
+    return [...assignedRows, ...unassignedRows];
+  })()}
+</tbody>
       </table>
     </div>
     </DndContext>

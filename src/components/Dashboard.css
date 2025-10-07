@@ -329,3 +329,20 @@ button:active {
   background-color: #e0e0e0;
   cursor: not-allowed;
 }
+.stations-summary {
+  margin: 20px 0;
+  padding: 15px;
+  background-color: #f9f9f9;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+}
+
+.stations-summary h3 {
+  margin: 0 0 10px;
+  font-size: 1.2em;
+}
+
+.stations-summary p {
+  margin: 5px 0;
+  font-size: 1em;
+}
