@@ -546,7 +546,7 @@ const normalizeToARGB = (colorInput) => {
   return 'FFF1F1F1';
 };
 
-// handleUnassign function (unchanged from previous response)
+// handleUnassign function (unchanged)
   const handleUnassign = async (worker, day, daySchedule) => {
     if (isScheduleLocked) {
       alert('Schedule is locked and cannot be modified.');
@@ -604,7 +604,7 @@ const normalizeToARGB = (colorInput) => {
           new_value: '',
         },
       ]);
-      await handleSave();
+      //await handleSave();
     } catch (error) {
       console.error('Error unassigning shift:', error);
       alert('Failed to unassign shift: ' + error.message);
