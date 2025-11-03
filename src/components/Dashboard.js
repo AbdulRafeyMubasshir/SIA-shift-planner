@@ -172,6 +172,8 @@ const Dashboard = () => {
   const [closeAllContextMenus, setCloseAllContextMenus] = useState(false); // Trigger to close all menus
     // State to track if an assign/unassign action requires saving
   const [needsSave, setNeedsSave] = useState(false);
+  const [showReportForm, setShowReportForm] = useState(false);
+  const [reportWeekEndingDate, setReportWeekEndingDate] = useState('');
 
   // useEffect to trigger handleSave after unassignedStations updates
   useEffect(() => {
@@ -286,6 +288,16 @@ const unassignedStationsCount = unassignedStations.length;
       document.removeEventListener('click', handleClickOutside);
     };
   }, [contextMenuOpen]);
+
+  const formatDateToDDMMYYYY = (dateString) => {
+  if (!dateString) return '—';
+  const date = new Date(dateString);
+  if (isNaN(date)) return '—';
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
+};
 
   const formatSchedule = async (allocatedSchedule) => {
     const formattedSchedule = {};
@@ -835,6 +847,157 @@ worksheet.getRow(startRow + 2).height = 30;   // Hours row
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
   saveAs(blob, 'worker_schedule.xlsx');
+};
+
+const generateReport = async (weekEndingDate) => {
+  try {
+    // Fetch user session and organization
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session?.user) {
+      throw new Error("User not logged in");
+    }
+
+    const userId = session.user.id;
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('organization_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileError || !profile) {
+      throw new Error("Could not fetch user profile");
+    }
+
+    const organizationId = profile.organization_id;
+
+    // Fetch schedule entries for the week
+    const { data: scheduleEntries, error: fetchError } = await supabase
+      .from('schedule_entries')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .eq('week_ending', weekEndingDate);
+
+    if (fetchError) {
+      throw new Error('Failed to fetch schedule entries: ' + fetchError.message);
+    }
+
+    if (!scheduleEntries || scheduleEntries.length === 0) {
+      alert('No schedule entries found for the selected week.');
+      return;
+    }
+
+    // Process entries and sort by date only
+    const processedEntries = scheduleEntries
+      .filter((entry) => entry.location !== 'Unassigned' && entry.time)
+      .map((entry) => {
+        const date = new Date(entry.date);
+        if (isNaN(date)) return null;
+        const [startTime, endTime] = entry.time.split('-');
+        const totalHours = calculateShiftDuration(entry.time);
+        return {
+          date,
+          dd: String(date.getDate()).padStart(2, '0'),
+          mm: String(date.getMonth() + 1).padStart(2, '0'),
+          yyyy: date.getFullYear(),
+          agency: 'Berry',
+          officer: entry.worker_name,
+          position: 'SIA',
+          rate: 14.11,
+          station: entry.location,
+          shiftStart: startTime || '',
+          shiftEnd: endTime || '',
+          totalHours: totalHours !== '0.00' ? totalHours : '',
+          formattedDate: formatDateToDDMMYYYY(entry.date),
+          weekday: entry.day_of_week,
+          shiftRange: entry.time || '',
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.date - b.date); // Sort by date only (earliest first)
+
+    // Create workbook
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Weekly Report');
+
+    // Columns (exact same as before)
+    worksheet.columns = [
+      { header: 'DD', key: 'dd', width: 10 },
+      { header: 'MM', key: 'mm', width: 10 },
+      { header: 'YYYY', key: 'yyyy', width: 10 },
+      { header: 'Agency', key: 'agency', width: 15 },
+      { header: 'Officer', key: 'officer', width: 20 },
+      { header: 'Position', key: 'position', width: 15 },
+      { header: 'Rate', key: 'rate', width: 10 },
+      { header: 'Station', key: 'station', width: 20 },
+      { header: 'Shift Start', key: 'shiftStart', width: 15 },
+      { header: 'Shift End', key: 'shiftEnd', width: 15 },
+      { header: 'Total Hours', key: 'totalHours', width: 12 },
+      { header: 'Date', key: 'formattedDate', width: 15 },
+      { header: 'Weekday', key: 'weekday', width: 15 },
+      { header: 'Shift Range', key: 'shiftRange', width: 15 },
+    ];
+
+    // Header styling (exact same)
+    worksheet.getRow(1).font = { bold: true, size: 12, name: 'Arial' };
+    worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFD3D3D3' },
+    };
+    worksheet.getRow(1).border = {
+      top: { style: 'thin' },
+      left: { style: 'thin' },
+      bottom: { style: 'thin' },
+      right: { style: 'thin' },
+    };
+
+    // Add rows
+    processedEntries.forEach((entry) => {
+      worksheet.addRow({
+        dd: entry.dd,
+        mm: entry.mm,
+        yyyy: entry.yyyy,
+        agency: entry.agency,
+        officer: entry.officer,
+        position: entry.position,
+        rate: entry.rate,
+        station: entry.station,
+        shiftStart: entry.shiftStart,
+        shiftEnd: entry.shiftEnd,
+        totalHours: entry.totalHours,
+        formattedDate: entry.formattedDate,
+        weekday: entry.weekday,
+        shiftRange: entry.shiftRange,
+      });
+    });
+
+    // Data row styling (exact same)
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      row.eachCell((cell) => {
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' },
+        };
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        cell.font = { name: 'Arial', size: 11 };
+      });
+    });
+
+    // Download
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    saveAs(blob, `weekly_report_${weekEndingDate}.xlsx`);
+
+  } catch (error) {
+    console.error('Error generating report:', error);
+    alert('Failed to generate report: ' + error.message);
+  }
 };
 
   const downloadDashboardAsPDF = async () => {
@@ -1876,6 +2039,44 @@ setUnassignedStations(unassigned);
           </div>
         </div>
       )}
+      <div className="search-container">
+  {!showReportForm ? (
+    <button className="generate-report-button" onClick={() => setShowReportForm(true)}>
+      Generate Report
+    </button>
+  ) : (
+    <form
+      className="report-form"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!reportWeekEndingDate) {
+          alert("Please select a week-ending date.");
+          return;
+        }
+        await generateReport(reportWeekEndingDate);
+        setShowReportForm(false); // Close the form after generating
+        setReportWeekEndingDate(''); // Reset the date
+      }}
+    >
+      <button
+        className="close-button"
+        onClick={() => setShowReportForm(false)}
+        aria-label="Close"
+      >
+        Close
+      </button>
+      <input
+        type="date"
+        value={reportWeekEndingDate}
+        onChange={(e) => setReportWeekEndingDate(e.target.value)}
+        className="date-input"
+      />
+      <button type="submit" className="go-button">
+        Download
+      </button>
+    </form>
+  )}
+</div>
       <button
           className="lock-button"
           onClick={async () => {
